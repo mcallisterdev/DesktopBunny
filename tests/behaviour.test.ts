@@ -36,7 +36,23 @@ describe('behaviour', () => {
     expect(states).toContain('hop')
     expect(states).toContain('groom')
     expect(states).toContain('approachOtherRabbit')
+    expect(states).toContain('binkie')
     expect(candidates.every((candidate) => candidate.weight >= 0)).toBe(true)
+  })
+
+  it('leaves the binkie state after its leap', () => {
+    const pets = makePets()
+    const controller = new BehaviourController()
+    const ctx = world(pets, 7)
+    controller.enter(pets[0], 'binkie', ctx)
+
+    let leftBinkie = false
+    for (let i = 0; i < 400; i += 1) {
+      controller.update(pets[0], ctx, 16)
+      if (pets[0].state !== 'binkie') leftBinkie = true
+    }
+
+    expect(leftBinkie).toBe(true)
   })
 
   it('moves through multiple states over time', () => {

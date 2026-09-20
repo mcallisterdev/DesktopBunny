@@ -35,6 +35,7 @@ export function getWeightedTransitions(pet: Pet, ctx: WorldContext): TransitionC
       list.push({ state: 'lookAround', weight: 0.5 + p.curiosity * 1.2 + (nearPointer ? 0.8 : 0) })
       list.push({ state: 'groom', weight: 0.2 + p.groomingFrequency * 1.5 })
       list.push({ state: 'hop', weight: 0.6 + moveWeight * 1.6 })
+      list.push({ state: 'binkie', weight: 0.1 + p.binkiness * 0.6 })
       list.push({ state: 'sit', weight: 0.4 + (1 - p.activity) * 0.8 })
       list.push({ state: 'sleep', weight: 0.08 + p.sleepiness * 1.1 })
       list.push({ state: 'approachOtherRabbit', weight: 0.5 + socialWeight * 1.8 })
@@ -43,6 +44,7 @@ export function getWeightedTransitions(pet: Pet, ctx: WorldContext): TransitionC
     case 'lookAround':
       list.push({ state: 'idle', weight: 1.1 })
       list.push({ state: 'hop', weight: 0.3 + moveWeight })
+      list.push({ state: 'binkie', weight: 0.08 + p.binkiness * 0.22 })
       list.push({ state: 'groom', weight: 0.2 + p.groomingFrequency })
       list.push({ state: 'sit', weight: 0.3 + (1 - p.activity) * 0.5 })
       list.push({ state: 'approachFood', weight: foodWeight * 0.8 })
@@ -53,7 +55,12 @@ export function getWeightedTransitions(pet: Pet, ctx: WorldContext): TransitionC
       list.push({ state: 'lookAround', weight: 0.4 + p.curiosity })
       list.push({ state: 'sleep', weight: 0.1 + p.sleepiness * 0.8 })
       list.push({ state: 'hop', weight: 0.3 + p.activity * 0.6 })
+      list.push({ state: 'binkie', weight: 0.06 + p.binkiness * 0.35 })
       list.push({ state: 'approachFood', weight: foodWeight * 0.7 })
+      break
+    case 'binkie':
+      list.push({ state: 'idle', weight: 1 })
+      list.push({ state: 'hop', weight: 0.4 + p.activity * 0.6 })
       break
     case 'groom':
       list.push({ state: 'idle', weight: 1 })

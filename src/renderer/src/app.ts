@@ -61,9 +61,6 @@ export async function startApp(initialSettings: PetSettings = defaultSettings): 
   renderer.setDebug(settings.debug)
   for (const pet of pets) renderer.createPet(pet)
 
-  const overlay = new DebugOverlay(app)
-  overlay.setEnabled(settings.debug)
-
   const pointer = new PointerTracker()
   pointer.attach()
 
@@ -92,6 +89,12 @@ export async function startApp(initialSettings: PetSettings = defaultSettings): 
     timeMs: performance.now()
   })
 
+  const overlay = new DebugOverlay(app, (petId, state) => {
+    const pet = pets.find((candidate) => candidate.id === petId)
+    if (pet) controller.enter(pet, state, world())
+  })
+  overlay.setEnabled(settings.debug)
+
   for (const pet of pets) controller.enter(pet, 'idle', world())
 
   app.ticker.add((ticker) => {
@@ -102,17 +105,22 @@ export async function startApp(initialSettings: PetSettings = defaultSettings): 
       bounds,
       deltaMs
     )
-    if (capture.capturing !== capturing) {
-      capturing = capture.capturing
+    // The debug controls need native clicks, so lift click-through while the
+    // pointer is over the panel even though no pet is hovered.
+    const overDebugPanel = overlay.containsPoint(pointer.position.x, pointer.position.y)
+    const wantCapture = capture.capturing || overDebugPanel
+    if (wantCapture !== capturing) {
+      capturing = wantCapture
       window.desktopPet.setPointerCapturing(capturing)
     }
 
+    const ctx = world()
     for (const pet of pets) {
-      controller.update(pet, world(), deltaMs)
+      controller.update(pet, ctx, deltaMs)
       renderer.updatePet(pet, deltaMs)
     }
     foodRenderer.update(food)
-    overlay.update(pets, bounds, settings.scale, food)
+    overlay.update(pets, bounds, settings.scale, food, ctx)
   })
 
   window.addEventListener('resize', () => {

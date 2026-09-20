@@ -28,10 +28,11 @@ export const tanyaProfile: PetProfile = {
 }
 
 export const tanyaPersonality: PetPersonality = {
-  activity: 0.5,
-  curiosity: 0.5,
-  sociability: 0.85,
-  sleepiness: 0.6,
-  groomingFrequency: 0.65,
-  restlessness: 0.35
+  activity: 0.3,
+  curiosity: 0.8,
+  sociability: 0.5,
+  sleepiness: 0.7,
+  groomingFrequency: 0.9,
+  restlessness: 0.2,
+  binkiness: 0.25
 }

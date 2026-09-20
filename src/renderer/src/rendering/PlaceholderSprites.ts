@@ -76,6 +76,8 @@ interface Pose {
   headTurn: number
   earAngle: number
   eyesClosed: boolean
+  /** Whole-body rotation in radians, used for the mid-air binkie spin. */
+  spin: number
   /** Ground shadows are baked into the frame, so hide them when the bunny is airborne. */
   shadow: boolean
 }
@@ -106,6 +108,7 @@ function poseFor(clip: string, frame: number, count: number): Pose {
     headTurn: 0,
     earAngle: 0,
     eyesClosed: false,
+    spin: 0,
     shadow: true
   }
 
@@ -122,6 +125,22 @@ function poseFor(clip: string, frame: number, count: number): Pose {
         squashX: 1 - hop * 0.06,
         squashY: 1 + hop * 0.08,
         earAngle: -hop * 12
+      }
+    }
+    case 'binkie': {
+      // A happy leap: spring off the ground, twist a full turn at the apex and
+      // land where it started. Progress uses frame/(count-1) so the last frame
+      // completes the 360 rather than resting a fraction short.
+      const progress = count > 1 ? frame / (count - 1) : 1
+      const leap = Math.sin(progress * Math.PI)
+      return {
+        ...base,
+        lift: leap * 42,
+        spin: progress * Math.PI * 2,
+        squashX: 1 - leap * 0.05,
+        squashY: 1 + leap * 0.07,
+        earAngle: -leap * 18,
+        shadow: false
       }
     }
     case 'run': {
@@ -143,6 +162,21 @@ function poseFor(clip: string, frame: number, count: number): Pose {
         earAngle: wave * 8,
         lift: Math.max(0, wave) * 3
       }
+    case 'pet': {
+      // Melts into the hand: eyes shut, body softly squashing to a slow purr
+      // while the head nuzzles side to side and the ears flop loose.
+      const purr = Math.sin(t * Math.PI * 2)
+      const nuzzle = Math.sin(t * Math.PI * 2 - Math.PI / 2)
+      return {
+        ...base,
+        eyesClosed: true,
+        squashX: 1 + 0.02 + purr * 0.02,
+        squashY: 0.95 + purr * 0.035,
+        lift: Math.max(0, purr) * 2,
+        headTurn: nuzzle * 8,
+        earAngle: -10 + purr * 4
+      }
+    }
     case 'sleep':
       return { ...base, squashY: 0.86 + wave * 0.015, eyesClosed: true, earAngle: -22 }
     case 'parachute':
@@ -864,12 +898,24 @@ function drawFrame(
   ctx.scale(SPRITE_SUPERSAMPLE, SPRITE_SUPERSAMPLE)
 
   const pose = poseFor(clip, index, count)
+  const spinning = pose.spin !== 0
+  if (spinning) {
+    // Rotate the whole bunny about its body centre so the binkie reads as a
+    // mid-air twist without swinging around its feet.
+    const pivotY = FRAME_ANCHOR_Y - pose.lift - 65
+    ctx.save()
+    ctx.translate(FRAME_ANCHOR_X, pivotY)
+    ctx.rotate(pose.spin)
+    ctx.translate(-FRAME_ANCHOR_X, -pivotY)
+  }
   if (!profile.lopEars && profile.uprightCoat) {
     drawCoatedUpright(ctx, profile, pose)
+    if (spinning) ctx.restore()
     return canvas
   }
   if (profile.lopEars && profile.lopCoat) {
     drawCoatedLop(ctx, profile, pose)
+    if (spinning) ctx.restore()
     return canvas
   }
   const body = profile.bodyColor
@@ -1009,6 +1055,8 @@ function drawFrame(
     drawLopEar(ctx, headCX, headCY, -1, headS, ear, earSway, earLength, earThickness)
     drawLopEar(ctx, headCX, headCY, 1, headS, ear, earSway, earLength, earThickness)
   }
+
+  if (spinning) ctx.restore()
 
   return canvas
 }

@@ -5,4 +5,5 @@ export interface PetPersonality {
   sleepiness: number
   groomingFrequency: number
   restlessness: number
+  binkiness: number
 }

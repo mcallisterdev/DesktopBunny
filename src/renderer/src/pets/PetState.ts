@@ -2,6 +2,7 @@ export type PetState =
   | 'idle'
   | 'lookAround'
   | 'hop'
+  | 'binkie'
   | 'run'
   | 'sit'
   | 'groom'

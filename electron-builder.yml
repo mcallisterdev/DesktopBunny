@@ -31,4 +31,4 @@ mac:
   identity: null
   target:
     - dmg
-  artifactName: TacoTanya-${version}-mac.${ext}
+  artifactName: TacoTanya-${version}-mac-arm64.${ext}

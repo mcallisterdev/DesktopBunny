@@ -27,10 +27,11 @@ export const tacoProfile: PetProfile = {
 }
 
 export const tacoPersonality: PetPersonality = {
-  activity: 0.75,
-  curiosity: 0.8,
+  activity: 0.9,
+  curiosity: 0.5,
   sociability: 0.7,
-  sleepiness: 0.35,
-  groomingFrequency: 0.4,
-  restlessness: 0.65
+  sleepiness: 0.4,
+  groomingFrequency: 0.7,
+  restlessness: 0.8,
+  binkiness: 0.8
 }

@@ -26,6 +26,7 @@ export const behaviourTickMs = 250
 
 export const stateDurations: Record<string, [number, number]> = {
   idle: [2000, 8000],
+  binkie: [1000, 1000],
   lookAround: [1000, 3000],
   sit: [3000, 12000],
   groom: [3000, 7000],
