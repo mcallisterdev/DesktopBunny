@@ -9,6 +9,8 @@ files:
 extraResources:
   - from: resources/tray.png
     to: tray.png
+electronLanguages:
+  - en
 npmRebuild: false
 win:
   icon: resources/icon.png
@@ -29,7 +31,4 @@ mac:
   identity: null
   target:
     - dmg
-    - zip
-  artifactName: TacoTanya-${version}-mac-${arch}.${ext}
-dmg:
-  artifactName: TacoTanya-${version}-mac-${arch}.${ext}
+  artifactName: TacoTanya-${version}-mac.${ext}
