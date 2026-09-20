@@ -1,0 +1,35 @@
+appId: com.desktopbunny.taco-tanya
+productName: Taco & Tanya
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+npmRebuild: false
+win:
+  icon: resources/icon.png
+  executableName: TacoTanya
+  artifactName: TacoTanya-${version}-windows-${arch}.${ext}
+  target:
+    - nsis
+    - zip
+nsis:
+  artifactName: TacoTanya-${version}-windows-setup.${ext}
+  shortcutName: Taco & Tanya
+  uninstallDisplayName: Taco & Tanya
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  icon: resources/icon.png
+  category: public.app-category.entertainment
+  identity: null
+  target:
+    - dmg
+    - zip
+  artifactName: TacoTanya-${version}-mac-${arch}.${ext}
+dmg:
+  artifactName: TacoTanya-${version}-mac-${arch}.${ext}
