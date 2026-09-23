@@ -22,7 +22,7 @@ export const animationMap: Record<PetState, string> = {
   dragged: 'idle',
   parachute: 'parachute',
   approachFood: 'hop',
-  eat: 'groom'
+  eat: 'eat'
 }
 
 export const animationClips: Record<string, AnimationClip> = {
@@ -32,7 +32,8 @@ export const animationClips: Record<string, AnimationClip> = {
   binkie: { frames: 32, fps: 32, loop: false },
   run: { frames: 8, fps: 18, loop: true },
   sit: { frames: 4, fps: 4, loop: true },
-  groom: { frames: 12, fps: 10, loop: true },
+  groom: { frames: 24, fps: 12, loop: true },
+  eat: { frames: 10, fps: 8, loop: true },
   pet: { frames: 10, fps: 8, loop: true },
   sleep: { frames: 4, fps: 2, loop: true },
   parachute: { frames: 8, fps: 6, loop: true }

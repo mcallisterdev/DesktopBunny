@@ -80,6 +80,20 @@ interface Pose {
   spin: number
   /** Ground shadows are baked into the frame, so hide them when the bunny is airborne. */
   shadow: boolean
+  /** Sideways tilt of the head in radians, used while leaning into a grooming paw. */
+  headTilt: number
+  /** Downward offset of the head in head-local pixels. */
+  headDip: number
+  /** 0 = front paws tucked at the chest, 1 = raised up to the face. */
+  groomPawLift: number
+  /** Height the raised paws have wiped to: 0 = muzzle, 1 = brow. */
+  groomPawY: number
+  /** Which ear is being pulled to the mouth: -1 left, 0 none, 1 right. */
+  groomEarSide: number
+  /** 0..1 how far the chosen ear is dragged down to be nibbled. */
+  groomEarPull: number
+  /** 0..1 flick of the tongue while licking a paw or ear. */
+  groomTongue: number
 }
 
 function hexToRgb(hex: number): [number, number, number] {
@@ -98,6 +112,60 @@ function shade(hex: number, amount: number): number {
   return (adjust(r) << 16) | (adjust(g) << 8) | adjust(b)
 }
 
+function smooth01(value: number): number {
+  const clamped = Math.min(1, Math.max(0, value))
+  return clamped * clamped * (3 - 2 * clamped)
+}
+
+type GroomPose = Pick<
+  Pose,
+  | 'groomPawLift'
+  | 'groomPawY'
+  | 'groomEarSide'
+  | 'groomEarPull'
+  | 'groomTongue'
+  | 'headTilt'
+  | 'headDip'
+  | 'eyesClosed'
+>
+
+/**
+ * Drives a full grooming session from a 0..1 phase. The bunny lifts its front
+ * paws, washes its face with a couple of quick upward strokes, then hooks a paw
+ * over an ear, pulls it down and nibbles along it before settling back to rest.
+ * The phase lands back on the resting pose at 1 so the clip loops without a pop.
+ */
+function groomPose(t: number): GroomPose {
+  const RAISE = 0.1
+  const EAR_START = 0.56
+  const EAR_PEAK = 0.66
+  const EAR_END = 0.8
+  const LOWER = 0.94
+
+  const lift = Math.min(
+    smooth01(t / RAISE),
+    smooth01((LOWER - t) / (LOWER - EAR_END))
+  )
+  // Two full wipe strokes between arriving at the face and reaching for the ear.
+  const wash =
+    (1 - Math.cos(smooth01((t - RAISE) / (EAR_START - RAISE)) * Math.PI * 4)) / 2
+  // A bump so ear grooming eases out of the washing rhythm on both sides.
+  const ear =
+    smooth01((t - EAR_START) / (EAR_PEAK - EAR_START)) *
+    smooth01((EAR_END - t) / (EAR_END - EAR_PEAK))
+
+  return {
+    groomPawLift: lift,
+    groomPawY: wash,
+    groomEarSide: ear > 0.01 ? 1 : 0,
+    groomEarPull: ear,
+    groomTongue: Math.max(0, Math.sin((t - EAR_START) * Math.PI * 14)) * ear,
+    headTilt: ear * 0.16,
+    headDip: (1 - wash) * 3 * (1 - ear) + ear * 2.5,
+    eyesClosed: lift > 0.4
+  }
+}
+
 function poseFor(clip: string, frame: number, count: number): Pose {
   const t = count > 1 ? frame / count : 0
   const wave = Math.sin(t * Math.PI * 2)
@@ -109,7 +177,14 @@ function poseFor(clip: string, frame: number, count: number): Pose {
     earAngle: 0,
     eyesClosed: false,
     spin: 0,
-    shadow: true
+    shadow: true,
+    headTilt: 0,
+    headDip: 0,
+    groomPawLift: 0,
+    groomPawY: 0,
+    groomEarSide: 0,
+    groomEarPull: 0,
+    groomTongue: 0
   }
 
   switch (clip) {
@@ -155,13 +230,28 @@ function poseFor(clip: string, frame: number, count: number): Pose {
     }
     case 'sit':
       return { ...base, squashY: 0.94 + wave * 0.01, earAngle: wave * 2 }
-    case 'groom':
+    case 'groom': {
+      const groom = groomPose(t)
       return {
         ...base,
-        headTurn: wave * 10,
-        earAngle: wave * 8,
-        lift: Math.max(0, wave) * 3
+        ...groom,
+        // A little horizontal lean keeps the wash strokes from reading as a
+        // rigid vertical slide, and the free ear twitches softly.
+        headTurn: groom.headTilt * 6,
+        earAngle: wave * 3
       }
+    }
+    case 'eat': {
+      // Head stays dipped to the food with a small nibbling bob.
+      const nibble = Math.sin(t * Math.PI * 2)
+      return {
+        ...base,
+        headDip: 7 + Math.max(0, nibble) * 1.5,
+        headTurn: nibble * 1.5,
+        earAngle: 3 + nibble * 3,
+        squashY: 0.98 + nibble * 0.01
+      }
+    }
     case 'pet': {
       // Melts into the hand: eyes shut, body softly squashing to a slow purr
       // while the head nuzzles side to side and the ears flop loose.
@@ -473,6 +563,186 @@ function drawHaunches(ctx: CanvasRenderingContext2D, shadow: number): void {
   ctx.restore()
 }
 
+/**
+ * A small front paw on a foreleg reaching up from the chest. Coordinates are in
+ * head-local space so the paw tracks the head while the bunny washes its face.
+ */
+function drawGroomPaw(
+  ctx: CanvasRenderingContext2D,
+  shoulderX: number,
+  shoulderY: number,
+  handX: number,
+  handY: number,
+  scale: number,
+  light: number,
+  base: number,
+  shadow: number,
+  ticking: number,
+  toe?: number
+): void {
+  const outline = rgbCss(shade(shadow, -0.13))
+  ctx.save()
+  ctx.lineCap = 'round'
+  // Foreleg: a tapered capsule from the shoulder down to the wrist.
+  ctx.strokeStyle = outline
+  ctx.lineWidth = 9.5 * scale + 1.5
+  ctx.beginPath()
+  ctx.moveTo(shoulderX, shoulderY)
+  ctx.lineTo(handX, handY)
+  ctx.stroke()
+  const arm = ctx.createLinearGradient(shoulderX, shoulderY, handX, handY)
+  arm.addColorStop(0, rgbCss(shadow))
+  arm.addColorStop(0.55, rgbCss(base))
+  arm.addColorStop(1, rgbCss(light))
+  ctx.strokeStyle = arm
+  ctx.lineWidth = 9.5 * scale
+  ctx.beginPath()
+  ctx.moveTo(shoulderX, shoulderY)
+  ctx.lineTo(handX, handY)
+  ctx.stroke()
+
+  // The paw pad itself, with the toes pointed along the forearm.
+  ctx.translate(handX, handY)
+  ctx.rotate(Math.atan2(handY - shoulderY, handX - shoulderX) + Math.PI / 2)
+  const paw = ovalPath(0, 0, 7.4 * scale, 8.8 * scale)
+  shadedFur(
+    ctx,
+    paw,
+    [-8 * scale, -9 * scale, 16 * scale, 18 * scale],
+    light,
+    base,
+    shadow,
+    ticking,
+    410,
+    80
+  )
+  if (toe !== undefined) coatPatch(ctx, paw, 0, -2.5 * scale, 5 * scale, 4 * scale, toe, 0.5)
+  ctx.strokeStyle = rgbCss(shadow, 0.55)
+  ctx.lineWidth = 0.6
+  for (const toeX of [-2.6, 2.6]) {
+    ctx.beginPath()
+    ctx.moveTo(toeX * scale, 2 * scale)
+    ctx.quadraticCurveTo(toeX * scale, -3 * scale, toeX * 0.6 * scale, -6 * scale)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/** Raises the front paws to the face and hooks the chosen ear while grooming. */
+function drawGroomingPaws(
+  ctx: CanvasRenderingContext2D,
+  pose: Pose,
+  light: number,
+  base: number,
+  shadow: number,
+  ticking: number,
+  earPawX: number,
+  earPawY: number,
+  toe?: number
+): void {
+  if (pose.groomPawLift <= 0.01) return
+  const lift = pose.groomPawLift
+  const washY = 19 - pose.groomPawY * 34
+  for (const side of [-1, 1] as const) {
+    // The paw that hooks the ear leaves the muzzle for wherever the folded ear
+    // tip has been pulled to; the other paw keeps washing.
+    const pull = pose.groomEarSide !== 0 && side === pose.groomEarSide ? pose.groomEarPull : 0
+    const handX = side * (12 + (earPawX - 12) * pull)
+    const handY = 46 + (washY + (earPawY - washY) * pull - 46) * lift
+    drawGroomPaw(
+      ctx,
+      side * 16,
+      44,
+      handX,
+      handY,
+      0.92,
+      light,
+      base,
+      shadow,
+      ticking,
+      toe
+    )
+  }
+}
+
+/** A small tongue flick while licking a paw or the pulled ear. */
+function drawGroomTongue(ctx: CanvasRenderingContext2D, pose: Pose): void {
+  if (pose.groomTongue <= 0.01) return
+  const lick = pose.groomTongue
+  ctx.save()
+  ctx.strokeStyle = 'rgba(150,70,88,0.55)'
+  ctx.lineWidth = 0.6
+  ctx.beginPath()
+  ctx.moveTo(0, 18)
+  ctx.lineTo(0, 18 + lick * 5)
+  ctx.stroke()
+  ctx.fillStyle = 'rgba(216,124,142,0.95)'
+  ctx.beginPath()
+  ctx.ellipse(0, 20 + lick * 2, 3.4, 2.4 + lick * 3.6, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
+/**
+ * Taco's tall upright ear. A `pull` of 1 folds it forward over the cheek so the
+ * tip can be drawn to the mouth; at 0 it is the resting pose.
+ */
+function drawUprightEar(
+  ctx: CanvasRenderingContext2D,
+  profile: PetProfile,
+  pose: Pose,
+  side: number,
+  pull: number
+): void {
+  const coat = profile.uprightCoat!
+  ctx.save()
+  ctx.translate(side * 15 * (1 - pull * 0.18), -19 + pull * 6)
+  ctx.rotate(
+    side * (0.18 + (side < 0 ? 0.06 : 0) + pose.earAngle * 0.012 + pull * 2.6)
+  )
+  ctx.scale(
+    (profile.earThicknessScale ?? 1) * (1 + pull * 0.12),
+    (profile.earLengthScale ?? 1) * (side < 0 ? 0.94 : 1) * (1 - pull * 0.5)
+  )
+  const ear = new Path2D()
+  ear.moveTo(-7, 4)
+  ear.bezierCurveTo(-13, -12, -12, -38, -4, -53)
+  ear.bezierCurveTo(-1, -60, 3, -60, 6, -51)
+  ear.bezierCurveTo(13, -31, 11, -10, 7, 4)
+  ear.closePath()
+  shadedFur(
+    ctx,
+    ear,
+    [-12, -58, 24, 62],
+    coat.highlight,
+    profile.bodyColor,
+    coat.shadow,
+    profile.accentColor,
+    220 + side,
+    180
+  )
+  const inner = new Path2D()
+  inner.moveTo(-3, -3)
+  inner.bezierCurveTo(-8, -16, -8, -36, -2, -50)
+  inner.bezierCurveTo(0, -54, 2, -51, 4, -43)
+  inner.bezierCurveTo(8, -25, 6, -11, 3, -3)
+  inner.closePath()
+  const pink = ctx.createLinearGradient(-7, 0, 7, -5)
+  pink.addColorStop(0, rgbCss(coat.innerEar, 0.25))
+  pink.addColorStop(0.5, rgbCss(coat.innerEar, 0.9))
+  pink.addColorStop(1, rgbCss(coat.innerEar, 0.25))
+  ctx.fillStyle = pink
+  ctx.fill(inner)
+  furTexture(ctx, inner, [-8, -53, 16, 50], coat.highlight, coat.innerEar, 90, 230 + side)
+  ctx.strokeStyle = rgbCss(coat.nose, 0.3)
+  ctx.lineWidth = 0.6
+  ctx.beginPath()
+  ctx.moveTo(0, -10)
+  ctx.quadraticCurveTo(-2, -28, 0, -42)
+  ctx.stroke()
+  ctx.restore()
+}
+
 /** A broad, low lop with a sandy saddle and darker points, still drawn as a small canvas sprite. */
 function drawCoatedLop(ctx: CanvasRenderingContext2D, profile: PetProfile, pose: Pose): void {
   const coat = profile.lopCoat!
@@ -539,7 +809,8 @@ function drawCoatedLop(ctx: CanvasRenderingContext2D, profile: PetProfile, pose:
   )
 
   ctx.save()
-  ctx.translate(100 + pose.headTurn, headY)
+  ctx.translate(100 + pose.headTurn, headY + pose.headDip)
+  ctx.rotate(pose.headTilt)
   ctx.scale(headS, headS)
   // Tanya's loose cream dewlap sits immediately below her cheeks.
   shadedFur(ctx, ovalPath(0, 32, 24, 17), [-24, 15, 48, 34], coat.highlight, profile.accentColor, coat.shadow, profile.bodyColor, 49, 180, false)
@@ -598,10 +869,12 @@ function drawCoatedLop(ctx: CanvasRenderingContext2D, profile: PetProfile, pose:
   }
 
   for (const side of [-1, 1]) {
+    // While grooming, one ear is hooked and dragged across the muzzle.
+    const pull = side === pose.groomEarSide ? pose.groomEarPull : 0
     ctx.save()
-    ctx.translate(side * 21, -22)
-    ctx.rotate(side * (-0.025 + pose.earAngle * 0.009) + (side < 0 ? -0.035 : 0.025))
-    ctx.scale(side * earThickness, earLength * (side < 0 ? 0.97 : 1))
+    ctx.translate(side * 21 * (1 - pull * 0.12), -22 + pull * 4)
+    ctx.rotate(side * (-0.025 + pose.earAngle * 0.009 + pull * 0.66) + (side < 0 ? -0.035 : 0.025))
+    ctx.scale(side * earThickness, earLength * (side < 0 ? 0.97 : 1) * (1 - pull * 0.22))
     const ear = new Path2D()
     // Rise from the crown, fold outwards, then broaden into a hanging ear blade.
     ear.moveTo(-6, 3)
@@ -674,6 +947,8 @@ function drawCoatedLop(ctx: CanvasRenderingContext2D, profile: PetProfile, pose:
       ctx.stroke()
     }
   }
+  drawGroomingPaws(ctx, pose, coat.highlight, profile.bodyColor, coat.shadow, coat.ticking, 5, 22, coat.toe)
+  drawGroomTongue(ctx, pose)
   ctx.restore()
 }
 
@@ -756,40 +1031,13 @@ function drawCoatedUpright(ctx: CanvasRenderingContext2D, profile: PetProfile, p
   )
 
   ctx.save()
-  ctx.translate(100 + pose.headTurn, headY)
+  ctx.translate(100 + pose.headTurn, headY + pose.headDip)
+  ctx.rotate(pose.headTilt)
   ctx.scale(headS, headS)
-  for (const side of [-1, 1]) {
-    ctx.save()
-    ctx.translate(side * 15, -19)
-    ctx.rotate(side * (0.18 + (side < 0 ? 0.06 : 0) + pose.earAngle * 0.012))
-    ctx.scale(profile.earThicknessScale ?? 1, (profile.earLengthScale ?? 1) * (side < 0 ? 0.94 : 1))
-    const ear = new Path2D()
-    ear.moveTo(-7, 4)
-    ear.bezierCurveTo(-13, -12, -12, -38, -4, -53)
-    ear.bezierCurveTo(-1, -60, 3, -60, 6, -51)
-    ear.bezierCurveTo(13, -31, 11, -10, 7, 4)
-    ear.closePath()
-    shadedFur(ctx, ear, [-12, -58, 24, 62], coat.highlight, profile.bodyColor, coat.shadow, profile.accentColor, 220 + side, 180)
-    const inner = new Path2D()
-    inner.moveTo(-3, -3)
-    inner.bezierCurveTo(-8, -16, -8, -36, -2, -50)
-    inner.bezierCurveTo(0, -54, 2, -51, 4, -43)
-    inner.bezierCurveTo(8, -25, 6, -11, 3, -3)
-    inner.closePath()
-    const pink = ctx.createLinearGradient(-7, 0, 7, -5)
-    pink.addColorStop(0, rgbCss(coat.innerEar, 0.25))
-    pink.addColorStop(0.5, rgbCss(coat.innerEar, 0.9))
-    pink.addColorStop(1, rgbCss(coat.innerEar, 0.25))
-    ctx.fillStyle = pink
-    ctx.fill(inner)
-    furTexture(ctx, inner, [-8, -53, 16, 50], coat.highlight, coat.innerEar, 90, 230 + side)
-    ctx.strokeStyle = rgbCss(coat.nose, 0.3)
-    ctx.lineWidth = 0.6
-    ctx.beginPath()
-    ctx.moveTo(0, -10)
-    ctx.quadraticCurveTo(-2, -28, 0, -42)
-    ctx.stroke()
-    ctx.restore()
+  // Ears sit behind the head unless one is being folded forward to the mouth.
+  const pulledEar = pose.groomEarPull > 0.01 ? pose.groomEarSide : 0
+  for (const side of [-1, 1] as const) {
+    if (side !== pulledEar) drawUprightEar(ctx, profile, pose, side, 0)
   }
 
   shadedFur(ctx, ovalPath(0, 29, 25, 16), [-25, 13, 50, 32], coat.highlight, profile.bodyColor, coat.shadow, profile.accentColor, 241, 160, false)
@@ -881,6 +1129,10 @@ function drawCoatedUpright(ctx: CanvasRenderingContext2D, profile: PetProfile, p
       ctx.stroke()
     }
   }
+  // The hooked ear folds forward over the cheek, so it draws after the face.
+  if (pulledEar !== 0) drawUprightEar(ctx, profile, pose, pulledEar, pose.groomEarPull)
+  drawGroomingPaws(ctx, pose, coat.highlight, profile.bodyColor, coat.shadow, profile.accentColor, 20, 9, coat.innerEar)
+  drawGroomTongue(ctx, pose)
   ctx.restore()
 }
 
@@ -932,7 +1184,7 @@ function drawFrame(
   const bodyCX = FRAME_SIZE / 2
   const bodyCY = feetY - 34 * bodyH
   const headCX = bodyCX + pose.headTurn
-  const headCY = feetY - 80 - (bodyH - 1) * 20 - (headS - 1) * 10
+  const headCY = feetY - 80 - (bodyH - 1) * 20 - (headS - 1) * 10 + pose.headDip
 
   const earSway = pose.earAngle * 0.015
 
